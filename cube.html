@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Magic Block by Hayley Liu</title>
+    <style>
+        body {
+            background: #FFF8DC;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            border: 3px solid #333;
+            background: #000;
+            margin-top: 20px;
+            image-rendering: pixelated;
+        }
+
+        .controls {
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            margin: 20px;
+        }
+
+        .footer {
+            margin-top: 20px;
+            font-style: italic;
+            color: #2E8B57;
+            font-size: 14px;
+        }
+
+        #score-display {
+            font-size: 24px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="game"></canvas>
+    <div id="score-display">Score: 0</div>
+    <div class="controls">
+        <p>←→ : 移動｜↑ : 旋轉｜Q/E : 翻轉｜空格 : 快速落下</p>
+    </div>
+    <div class="footer">Hayley Liu</div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const BLOCK_SIZE = 30;
+        
+        // 設定畫布尺寸
+        canvas.width = 360;
+        canvas.height = 600;
+
+        // 遊戲參數
+        const COLS = 12;
+        const ROWS = 20;
+        const COLORS = ['#FFB6C1', '#9370DB', '#87CEFA', '#7FFFD4', '#FFD700'];
+        const DROP_INTERVAL = 1000; // 下落間隔(毫秒)
+
+        // 遊戲狀態
+        let score = 0;
+        let currentPiece = null;
+        let gameBoard = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+        let lastDropTime = 0;
+        let isGameOver = false;
+
+        // 方塊形狀庫
+        const SHAPES = [
+            [[1, 1, 1, 1]],                   // I
+            [[1, 1], [1, 1]],                 // O
+            [[0, 1, 0], [1, 1, 1]],           // T
+            [[1, 0, 0], [1, 1, 1]],           // L
+            [[0, 0, 1], [1, 1, 1]],           // J
+            [[1, 1, 0], [0, 1, 1]],           // S
+            [[0, 1, 1], [1, 1, 0]]            // Z
+        ];
+
+        function createPiece() {
+            const type = Math.floor(Math.random() * SHAPES.length);
+            return {
+                shape: SHAPES[type].map(row => [...row]),
+                color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                x: Math.floor(COLS / 2) - 1,
+                y: 0
+            };
+        }
+
+        function checkCollision(board, piece, newX, newY) {
+            for (let y = 0; y < piece.shape.length; y++) {
+                for (let x = 0; x < piece.shape[y].length; x++) {
+                    if (piece.shape[y][x]) {
+                        const nextX = newX + x;
+                        const nextY = newY + y;
+                        if (nextX < 0 || nextX >= COLS ||
+                            nextY >= ROWS ||
+                            (nextY >= 0 && board[nextY][nextX])) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function flipPiece(piece, direction) {
+            const originalShape = piece.shape.map(row => [...row]);
+            if (direction === 'horizontal') {
+                piece.shape = piece.shape.map(row => [...row].reverse());
+            } else if (direction === 'vertical') {
+                piece.shape = [...piece.shape].reverse();
+            }
+            if (checkCollision(gameBoard, piece, piece.x, piece.y)) {
+                piece.shape = originalShape;
+            }
+        }
+
+        function rotatePiece(piece) {
+            const originalShape = piece.shape.map(row => [...row]);
+            const rotated = piece.shape[0].map((_, i) =>
+                piece.shape.map(row => row[i]).reverse()
+            );
+            piece.shape = rotated;
+            if (checkCollision(gameBoard, piece, piece.x, piece.y)) {
+                piece.shape = originalShape;
+            }
+        }
+
+        function lockPiece() {
+            currentPiece.shape.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value) {
+                        gameBoard[currentPiece.y + y][currentPiece.x + x] = currentPiece.color;
+                    }
+                });
+            });
+
+            clearLines();
+            currentPiece = createPiece();
+            
+            if (checkCollision(gameBoard, currentPiece, currentPiece.x, currentPiece.y)) {
+                isGameOver = true;
+                alert('遊戲結束！最終分數：' + score);
+                resetGame();
+            }
+        }
+
+        function clearLines() {
+            let linesCleared = 0;
+            for (let y = ROWS - 1; y >= 0; y--) {
+                if (gameBoard[y].every(cell => cell)) {
+                    gameBoard.splice(y, 1);
+                    gameBoard.unshift(Array(COLS).fill(0));
+                    linesCleared++;
+                    y++;
+                }
+            }
+            if (linesCleared > 0) {
+                score += linesCleared;
+                updateScoreDisplay();
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            gameBoard = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+            currentPiece = createPiece();
+            isGameOver = false;
+            lastDropTime = 0;
+            updateScoreDisplay();
+        }
+
+        function updateScoreDisplay() {
+            document.getElementById('score-display').textContent = 'Score: ' + score;
+        }
+
+        function update(timestamp) {
+            if (isGameOver) return;
+
+            if (!currentPiece) currentPiece = createPiece();
+
+            // 自動下落控制
+            if (!lastDropTime) lastDropTime = timestamp;
+            const deltaTime = timestamp - lastDropTime;
+
+            if (deltaTime > DROP_INTERVAL) {
+                if (!checkCollision(gameBoard, currentPiece, currentPiece.x, currentPiece.y + 1)) {
+                    currentPiece.y++;
+                } else {
+                    lockPiece();
+                }
+                lastDropTime = timestamp;
+            }
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 繪製遊戲板
+            gameBoard.forEach((row, y) => {
+                row.forEach((color, x) => {
+                    if (color) {
+                        ctx.fillStyle = color;
+                        ctx.fillRect(
+                            x * BLOCK_SIZE,
+                            y * BLOCK_SIZE,
+                            BLOCK_SIZE - 1,
+                            BLOCK_SIZE - 1
+                        );
+                    }
+                });
+            });
+
+            // 繪製當前方塊
+            if (currentPiece) {
+                ctx.fillStyle = currentPiece.color;
+                currentPiece.shape.forEach((row, y) => {
+                    row.forEach((value, x) => {
+                        if (value) {
+                            ctx.fillRect(
+                                (currentPiece.x + x) * BLOCK_SIZE,
+                                (currentPiece.y + y) * BLOCK_SIZE,
+                                BLOCK_SIZE - 1,
+                                BLOCK_SIZE - 1
+                            );
+                        }
+                    });
+                });
+            }
+        }
+
+        document.addEventListener('keydown', event => {
+            if (isGameOver) return;
+
+            const key = event.key.toUpperCase();
+            switch (key) {
+                case 'ARROWLEFT':
+                    if (!checkCollision(gameBoard, currentPiece, currentPiece.x - 1, currentPiece.y)) {
+                        currentPiece.x--;
+                    }
+                    break;
+                case 'ARROWRIGHT':
+                    if (!checkCollision(gameBoard, currentPiece, currentPiece.x + 1, currentPiece.y)) {
+                        currentPiece.x++;
+                    }
+                    break;
+                case 'ARROWDOWN':
+                    if (!checkCollision(gameBoard, currentPiece, currentPiece.x, currentPiece.y + 1)) {
+                        currentPiece.y++;
+                    }
+                    break;
+                case 'ARROWUP':
+                    rotatePiece(currentPiece);
+                    break;
+                case 'Q':
+                    flipPiece(currentPiece, 'horizontal');
+                    break;
+                case 'E':
+                    flipPiece(currentPiece, 'vertical');
+                    break;
+                case ' ':
+                    while (!checkCollision(gameBoard, currentPiece, currentPiece.x, currentPiece.y + 1)) {
+                        currentPiece.y++;
+                    }
+                    lockPiece();
+                    break;
+            }
+            draw();
+        });
+
+        // 啟動遊戲
+        resetGame();
+        requestAnimationFrame(update);
+    </script>
+</body>
+</html>
